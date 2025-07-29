@@ -29,6 +29,14 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
+
+// catch-all error handler (in case any async throws outside of try/catch)
+app.use((err, req, res, next) => {
+  console.error("💥 Unhandled error:", err.stack);
+  res.status(500).json({ message: "Internal server error", error: err.message });
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

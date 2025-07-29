@@ -25,6 +25,6 @@ router.patch('/ride-status', authenticateJWT, updateRideStatus);
 router.get('/available-rides', getAvailableRides);
 
 // Ride status (for simulation: both Rider/Driver can poll this)
-router.get('/ride-status/:ride_id', getRideStatus);
+router.get('/ride-status/:rideId', getRideStatus);
 
 export default router;

@@ -139,6 +139,9 @@ const populateDB = async () => {
         Status VARCHAR(50) DEFAULT 'pending',
         Paid_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE Ride_Request
+      ADD COLUMN Start_Latitude FLOAT,
+      ADD COLUMN Start_Longitude FLOAT;
     `);
 
     // ========== 3. INSERT DUMMY DATA ==========
