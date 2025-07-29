@@ -76,7 +76,7 @@ export default function DriverHome() {
   };
   useEffect(() => () => clearInterval(locPoll.current), []);
 
-  // 2️⃣ Fetch available rides every 5s
+  // 2️⃣ Fetch available rides every 5s (with fare included from backend)
   useEffect(() => {
     const fetchRides = async () => {
       try {
@@ -95,17 +95,22 @@ export default function DriverHome() {
     return () => clearInterval(iv);
   }, []);
 
-  // 3️⃣ Filter to those within 10 km
+  // 3️⃣ Filter to those within 10 km and ensure fare is defined
   useEffect(() => {
     if (!currentLocation) return setFilteredRides([]);
     setFilteredRides(
-      availableRides.filter(ride => {
-        const start = {
-          lat: parseFloat(ride.start_latitude),
-          lng: parseFloat(ride.start_longitude)
-        };
-        return haversineDistance(currentLocation, start) <= 10;
-      })
+      availableRides
+        .filter(ride => {
+          const start = {
+            lat: parseFloat(ride.pickup_lat),
+            lng: parseFloat(ride.pickup_lng)
+          };
+          return haversineDistance(currentLocation, start) <= 10;
+        })
+        .map(ride => ({
+          ...ride,
+          fare: typeof ride.fare === 'number' ? ride.fare : 0
+        }))
     );
   }, [currentLocation, availableRides]);
 
@@ -131,7 +136,12 @@ export default function DriverHome() {
         alert(j1.message || 'Could not accept ride');
         return;
       }
-      // b) final GPS push
+
+      // Remove accepted ride from UI
+      setAvailableRides(prev => prev.filter(r => r.ride_id !== rideId));
+      setFilteredRides(prev => prev.filter(r => r.ride_id !== rideId));
+
+      // b) final GPS push (reuse same token)
       await fetch('http://localhost:3002/api/driver/update-location', {
         method: 'PATCH',
         headers: {
@@ -182,16 +192,14 @@ export default function DriverHome() {
           <p><strong>Ride ID:</strong> {ride.ride_id}</p>
           <p><strong>Pickup:</strong> {ride.start_location}</p>
           <p><strong>Dropoff:</strong> {ride.end_location}</p>
-          <p>
-            <strong>Distance:</strong>{' '}
-            {haversineDistance(
+          <p><strong>Distance:</strong> {haversineDistance(
               currentLocation,
-              { lat:+ride.start_latitude, lng:+ride.start_longitude }
-            ).toFixed(2)} km
-          </p>
+              { lat:+ride.pickup_lat, lng:+ride.pickup_lng }
+            ).toFixed(2)} km</p>
+          <p><strong>Fare:</strong> {ride.fare.toFixed(2)} TK</p>
 
           <MapContainer
-            center={[+ride.start_latitude, +ride.start_longitude]}
+            center={[+ride.pickup_lat, +ride.pickup_lng]}
             zoom={13}
             style={styles.map}
             dragging={false}
@@ -199,7 +207,7 @@ export default function DriverHome() {
             doubleClickZoom={false}
           >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <Marker position={[ride.start_latitude, ride.start_longitude]} icon={pickupIcon}>
+            <Marker position={[ride.pickup_lat, ride.pickup_lng]} icon={pickupIcon}>
               <Popup>Pickup</Popup>
             </Marker>
             <Marker position={[ride.end_latitude, ride.end_longitude]} icon={dropoffIcon}>

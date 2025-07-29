@@ -10,20 +10,45 @@ export const requestRide = async (req, res) => {
       start_latitude,
       start_longitude,
       end_latitude,
-      end_longitude
+      end_longitude,
+      fare,                // <- grab it from the request body
     } = req.body;
     const { rid: rider_id } = req.user;
 
+    // Insert into Ride, including the fare column
     const rideResult = await pool.query(
       `INSERT INTO Ride
-        (Vehicle_ID, Is_Shared, Start_Time, Start_Latitude, Start_Longitude, End_Latitude, End_Longitude, Start_Location, End_Location, Status)
-       VALUES (NULL, FALSE, NOW(), $1, $2, $3, $4, $5, $6, 'pending')
+        (Vehicle_ID, Is_Shared, Start_Time,
+         Start_Latitude, Start_Longitude,
+         End_Latitude, End_Longitude,
+         Start_Location, End_Location,
+         Fare,               -- add Fare here
+         Status)
+       VALUES
+        (NULL, FALSE, NOW(),
+         $1, $2,
+         $3, $4,
+         $5, $6,
+         $7,               -- bind fare
+         'pending')
        RETURNING Ride_ID`,
-      [ start_latitude, start_longitude, end_latitude, end_longitude, start_location, end_location ]
+      [
+        start_latitude,
+        start_longitude,
+        end_latitude,
+        end_longitude,
+        start_location,
+        end_location,
+        fare,               // <-- pass it in
+      ]
     );
     const ride_id = rideResult.rows[0].ride_id;
 
-    await pool.query(`INSERT INTO Ride_Request (Ride_ID) VALUES ($1)`, [ride_id]);
+    // Then create the Ride_Request and Ride_Riders as before
+    await pool.query(
+      `INSERT INTO Ride_Request (Ride_ID) VALUES ($1)`,
+      [ride_id]
+    );
     await pool.query(
       `INSERT INTO Ride_Riders (Rider_ID, Ride_ID) VALUES ($1, $2)`,
       [rider_id, ride_id]
@@ -32,49 +57,64 @@ export const requestRide = async (req, res) => {
     res.status(201).json({ message: 'Ride requested!', ride_id });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Error requesting ride', error: err.detail || err.message });
+    res
+      .status(500)
+      .json({ message: 'Error requesting ride', error: err.detail || err.message });
   }
 };
+
 
 // Drivers accept a ride
 export const acceptRide = async (req, res) => {
   try {
     const { ride_id } = req.body;
-    const driver_id = req.user.rid;
+    const driver_id   = req.user.rid;
 
-    // Check for any active rides
-    const active = await pool.query(
-      `SELECT 1 FROM Ride WHERE Vehicle_ID IN (SELECT Vehicle_ID FROM Vehicle WHERE Driver_ID = $1)
-       AND Status <> 'completed'`,
+    // (1) make sure driver has a vehicle
+    const vehicleRes = await pool.query(
+      `SELECT Vehicle_ID FROM Vehicle WHERE Driver_ID = $1`,
       [driver_id]
     );
-    // if (active.rows.length) {
-    //   return res.status(403).json({ message: 'You already have an active ride.' });
-    // }
-
-    const vehicleRes = await pool.query(
-      `SELECT Vehicle_ID FROM Vehicle WHERE Driver_ID = $1`, [driver_id]
-    );
-    if (!vehicleRes.rows.length) return res.status(400).json({ message: 'Driver has no vehicle' });
+    if (!vehicleRes.rows.length) {
+      return res.status(400).json({ message: 'Driver has no vehicle' });
+    }
     const vehicle_id = vehicleRes.rows[0].vehicle_id;
 
+    // (2) check ride exists & is still pending
     const rideRes = await pool.query(
-      `SELECT Status FROM Ride WHERE Ride_ID = $1`, [ride_id]
+      `SELECT Status FROM Ride WHERE Ride_ID = $1`,
+      [ride_id]
     );
-    if (!rideRes.rows.length) return res.status(404).json({ message: 'Ride not found' });
+    if (!rideRes.rows.length) {
+      return res.status(404).json({ message: 'Ride not found' });
+    }
     if (rideRes.rows[0].status !== 'pending') {
       return res.status(400).json({ message: 'Ride not available' });
     }
 
+    // (3) claim it for this driver
     await pool.query(
-      `UPDATE Ride SET Vehicle_ID = $1, Status = 'accepted' WHERE Ride_ID = $2`,
+      `UPDATE Ride
+         SET Vehicle_ID = $1,
+             Status     = 'accepted'
+       WHERE Ride_ID = $2`,
       [vehicle_id, ride_id]
+    );
+
+    // (4) remove its pending request record
+    await pool.query(
+      `DELETE FROM Ride_Request
+       WHERE Ride_ID = $1`,
+      [ride_id]
     );
 
     res.json({ message: 'Ride accepted!', ride_id });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Error accepting ride', error: err.detail || err.message });
+    res.status(500).json({
+      message: 'Error accepting ride',
+      error: err.detail || err.message
+    });
   }
 };
 
@@ -96,24 +136,35 @@ export const updateRideStatus = async (req, res) => {
 // Get all pending ride requests
 export const getAvailableRides = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT 
-         r.Ride_ID,
-         r.Start_Location, r.End_Location,
-         r.Start_Latitude, r.Start_Longitude,
-         r.End_Latitude, r.End_Longitude,
-         r.Start_Time
-       FROM Ride_Request rr
-       JOIN Ride r ON rr.Ride_ID = r.Ride_ID
-       WHERE r.Status = 'pending'
-       ORDER BY r.Start_Time ASC`
-    );
-    res.json(result.rows);
+    const { rows } = await pool.query(`
+      SELECT
+        rr.Request_ID,
+        rr.Requested_At,
+        r.Ride_ID,
+        r.Start_Location,
+        r.End_Location,
+        r.Start_Latitude  AS pickup_lat,
+        r.Start_Longitude AS pickup_lng,
+        r.End_Latitude,
+        r.End_Longitude,
+        r.Start_Time,
+        r.Fare
+      FROM Ride_Request rr
+      JOIN Ride r 
+        ON rr.Ride_ID = r.Ride_ID
+      WHERE rr.Status = 'pending'
+      ORDER BY rr.Requested_At ASC
+    `);
+    res.json(rows);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Failed to fetch available rides', error: err.message });
+    console.error('Failed to fetch available rides:', err);
+    res
+      .status(500)
+      .json({ message: 'Failed to fetch available rides', error: err.message });
   }
 };
+
+
 
 export const getRideStatus = async (req, res) => {
   const { rideId } = req.params;
