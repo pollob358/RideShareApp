@@ -1,3 +1,4 @@
+// src/pages/RiderSimulationPage.js
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
@@ -23,7 +24,6 @@ async function fetchRoute(start, end) {
   );
   if (!res.ok) throw new Error(`Route fetch failed (${res.status})`);
   const { features } = await res.json();
-  // switch [lng, lat] -> [lat, lng]
   return features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
 }
 
@@ -48,9 +48,7 @@ export default function RiderSimulationPage() {
       })
       .then(data => {
         if (!data.driver) throw new Error("Driver not assigned yet");
-        const start  = data.start;
-        const end    = data.end;
-        setRide({ start, end });
+        setRide({ start: data.start, end: data.end });
         setDriverPos({ lat: data.driver.lat, lng: data.driver.lng });
         setStatus("accepted");
       })
@@ -99,7 +97,7 @@ export default function RiderSimulationPage() {
       .catch(err => setError("Dropoff fetch failed: " + err.message));
   }, [status, ride]);
 
-  // 5) Animate to dropoff
+  // 5) Animate to dropoff, then redirect to payment
   useEffect(() => {
     if (status !== "to_dropoff" || toDropoff.length < 2) return;
     let i = 0;
@@ -110,7 +108,8 @@ export default function RiderSimulationPage() {
       } else {
         clearInterval(animRef.current);
         setStatus("completed");
-        setTimeout(() => navigate(`/ride/${rideId}/rate`), 1000);
+        // redirect to payment page instead of rating
+        setTimeout(() => navigate(`/ride/${rideId}/payment`), 1000);
       }
     }, 60);
     return () => clearInterval(animRef.current);

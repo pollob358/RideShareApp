@@ -12,6 +12,7 @@ import RequestRidePage from './pages/RequestRidePage';
 import AvailableRidesPage from './pages/AvailableRidesPage';
 import DriverSimulationPage from './pages/DriverSimulationPage';
 import RiderSimulationPage from './pages/RiderSimulationPage';
+import PaymentPage from './pages/PaymentPage';
 import RatingPage from './pages/RatingPage';
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
         <Route path="/driver/available-rides" element={<AvailableRidesPage />} />
         <Route path="/ride/:rideId/driver-sim" element={<DriverSimulationPage />} />
         <Route path="/ride/:rideId/rider-sim" element={<RiderSimulationPage />} />
+        <Route path="/ride/:rideId/payment" element={<PaymentPage />} />
         <Route path="/ride/:rideId/rate" element={<RatingPage />} />
       </Routes>
     </Router>
@@ -36,4 +38,3 @@ function App() {
 }
 
 export default App;
-
